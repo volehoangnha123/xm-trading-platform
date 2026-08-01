@@ -488,6 +488,16 @@ export const setTrend = (req, res) => {
   const targetSymbol = getNormalizedSymbol(symbol || 'BTC');
   if (['up', 'down', 'neutral'].includes(trend)) {
     coinTrends[targetSymbol] = trend;
+    
+    // Tự động tắt tính năng Bơm/Xả sau 5 phút để tránh giá phình to nếu admin quên tắt
+    if (trend !== 'neutral') {
+      setTimeout(() => {
+        if (coinTrends[targetSymbol] === trend) {
+          coinTrends[targetSymbol] = 'neutral';
+        }
+      }, 5 * 60 * 1000);
+    }
+
     res.json({ success: true, symbol: targetSymbol, trend });
   } else {
     res.status(400).json({ success: false, message: 'Invalid trend' });

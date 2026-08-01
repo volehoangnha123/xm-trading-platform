@@ -4,9 +4,15 @@ import { getPricesData } from './priceController.js';
 
 const formatLocalDate = (dateVal) => {
     if (!dateVal) return null;
-    const d = new Date(dateVal);
+    let d;
+    if (typeof dateVal === 'string') {
+        const cleanStr = dateVal.endsWith('Z') || dateVal.includes('+') ? dateVal : `${dateVal.replace(' ', 'T')}Z`;
+        d = new Date(cleanStr);
+    } else {
+        d = new Date(dateVal);
+    }
     if (isNaN(d.getTime())) return dateVal;
-    return d.toISOString().slice(0, -1);
+    return d.toISOString();
 };
 
 export const placeOrder = async (req, res) => {
@@ -76,9 +82,9 @@ export const placeOrder = async (req, res) => {
                 .input('StartPrice', sql.Decimal(18, 6), startPrice)
                 .input('Duration', sql.Int, seconds)
                 .query(`
-                    INSERT INTO BinaryOrders (UserId, Symbol, BetAmount, BetType, StartPrice, EndTime)
-                    OUTPUT INSERTED.Id, INSERTED.StartTime, INSERTED.EndTime
-                    VALUES (@UserId, @Symbol, @BetAmount, @BetType, @StartPrice, DATEADD(second, @Duration, GETDATE()))
+                    INSERT INTO BinaryOrders (UserId, Symbol, BetAmount, BetType, StartPrice, EndTime, Duration)
+                    OUTPUT INSERTED.Id, INSERTED.StartTime, INSERTED.EndTime, INSERTED.Duration
+                    VALUES (@UserId, @Symbol, @BetAmount, @BetType, @StartPrice, DATEADD(second, @Duration, GETUTCDATE()), @Duration)
                 `);
 
             await transaction.commit();
@@ -121,7 +127,7 @@ export const getHistory = async (req, res) => {
         const result = await pool.request()
             .input('UserId', sql.Int, userId)
             .query(`
-                SELECT Id, Symbol, BetAmount, BetType, StartPrice, EndPrice, StartTime, EndTime, Status, Payout
+                SELECT Id, Symbol, BetAmount, BetType, StartPrice, EndPrice, StartTime, EndTime, Duration, Status, Payout
                 FROM BinaryOrders
                 WHERE UserId = @UserId
                 ORDER BY StartTime DESC

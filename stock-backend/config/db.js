@@ -15,7 +15,7 @@ const dbConfig = {
     options: {
         encrypt: process.env.DB_ENCRYPT === 'true', 
         trustServerCertificate: process.env.DB_TRUST_CERT === 'true',
-        useUTC: false
+        useUTC: true
     },
     connectionTimeout: 10000 
 };
@@ -80,6 +80,15 @@ const connectDB = async () => {
             END
         `);
         console.log('✅ [SQL Server] Đã kiểm tra và cập nhật các cột KYC cho bảng Users');
+
+        // Auto-add Duration column to BinaryOrders if not exists
+        await pool.request().query(`
+            IF NOT EXISTS(SELECT * FROM sys.columns WHERE Name = N'Duration' AND Object_ID = Object_ID(N'BinaryOrders'))
+            BEGIN
+                ALTER TABLE BinaryOrders ADD Duration INT DEFAULT 60;
+                PRINT '✅ [SQL Server] Đã thêm cột Duration vào BinaryOrders';
+            END
+        `);
         
         activePool = pool;
         isConnecting = false;

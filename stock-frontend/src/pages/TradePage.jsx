@@ -109,9 +109,148 @@ const fmtP = (v) => fmt(v, 2);
 
 const formatDateTime = (dateStr) => {
   if (!dateStr) return '-';
-  const cleanStr = dateStr.endsWith('Z') ? dateStr : `${dateStr}Z`;
-  return new Date(cleanStr).toLocaleString('vi-VN');
+  const cleanStr = dateStr.endsWith('Z') || dateStr.includes('+') ? dateStr : `${dateStr.replace(' ', 'T')}Z`;
+  const d = new Date(cleanStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleString('vi-VN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
 };
+
+// Self-contained pending status cell with circular countdown progress spinner
+function PendingStatusCell({ endTime, duration, serverTimeOffset }) {
+  const [remainSec, setRemainSec] = React.useState(() => {
+    if (!endTime) return 0;
+    const s = endTime.endsWith('Z') ? endTime : `${endTime}Z`;
+    let endMs = new Date(s).getTime();
+    const nowMs = Date.now() + (serverTimeOffset || 0);
+    const diffMs = endMs - nowMs;
+    
+    // Auto-detect and fix timezone shift of the database datetimes
+    if (diffMs < -1800000) {
+      const shiftHours = Math.round(Math.abs(diffMs) / 3600000);
+      if (shiftHours > 0 && shiftHours < 24) {
+        endMs += shiftHours * 3600000;
+      }
+    }
+    
+    return Math.max(0, Math.round((endMs - nowMs) / 1000));
+  });
+
+  React.useEffect(() => {
+    const calc = () => {
+      if (!endTime) return setRemainSec(0);
+      const s = endTime.endsWith('Z') ? endTime : `${endTime}Z`;
+      let endMs = new Date(s).getTime();
+      const nowMs = Date.now() + (serverTimeOffset || 0);
+      const diffMs = endMs - nowMs;
+      
+      if (diffMs < -1800000) {
+        const shiftHours = Math.round(Math.abs(diffMs) / 3600000);
+        if (shiftHours > 0 && shiftHours < 24) {
+          endMs += shiftHours * 3600000;
+        }
+      }
+      
+      setRemainSec(Math.max(0, Math.round((endMs - nowMs) / 1000)));
+    };
+    calc();
+    const iv = setInterval(calc, 1000);
+    return () => clearInterval(iv);
+  }, [endTime, serverTimeOffset]);
+
+  if (remainSec <= 0) {
+    return (
+      <span style={{ color: '#FCD535', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+        ⏳ Đang kết toán...
+      </span>
+    );
+  }
+
+  const totalSec = duration || 60;
+  const progress = totalSec > 0 ? Math.max(0, Math.min(1, remainSec / totalSec)) : 0;
+  const r = 6;
+  const circ = 2 * Math.PI * r;
+
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#FCD535', fontWeight: 'bold' }}>
+      <svg width={r*2+4} height={r*2+4} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
+        <circle cx={r+2} cy={r+2} r={r} fill="none" stroke="rgba(252,213,53,0.18)" strokeWidth="1.8"/>
+        <circle cx={r+2} cy={r+2} r={r} fill="none"
+          stroke="#FCD535" strokeWidth="1.8"
+          strokeDasharray={circ}
+          strokeDashoffset={circ * (1 - progress)}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span>Đang chờ ({remainSec}s)</span>
+    </div>
+  );
+}
+
+// Settlement time cell: countdown circle when PENDING, formatted datetime when expired
+function SettlementTimeCell({ status, endTime, duration, serverTimeOffset }) {
+  const computeRemain = React.useCallback(() => {
+    if (!endTime) return 0;
+    const s = endTime.endsWith('Z') ? endTime : `${endTime}Z`;
+    let endMs = new Date(s).getTime();
+    const nowMs = Date.now() + (serverTimeOffset || 0);
+    const diffMs = endMs - nowMs;
+    // Auto-correct timezone shift stored in DB
+    if (diffMs < -1800000) {
+      const shiftH = Math.round(Math.abs(diffMs) / 3600000);
+      if (shiftH > 0 && shiftH < 24) endMs += shiftH * 3600000;
+    }
+    return Math.max(0, Math.round((endMs - nowMs) / 1000));
+  }, [endTime, serverTimeOffset]);
+
+  const [remainSec, setRemainSec] = React.useState(() =>
+    status === 'PENDING' ? computeRemain() : 0
+  );
+
+  React.useEffect(() => {
+    if (status !== 'PENDING') { setRemainSec(0); return; }
+    const tick = () => setRemainSec(computeRemain());
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [status, endTime, serverTimeOffset, computeRemain]);
+
+  // When not pending OR countdown reached 0 → show formatted datetime
+  if (status !== 'PENDING' || remainSec <= 0) {
+    return <span>{formatDateTime(endTime, serverTimeOffset)}</span>;
+  }
+
+  const totalSec = duration || 60;
+  const progress = totalSec > 0 ? Math.max(0, Math.min(1, remainSec / totalSec)) : 0;
+  const r = 8;
+  const circ = 2 * Math.PI * r;
+
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', color: '#FCD535', fontWeight: 'bold' }}>
+      <svg width={r * 2 + 4} height={r * 2 + 4} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
+        <circle cx={r + 2} cy={r + 2} r={r} fill="none" stroke="rgba(252,213,53,0.15)" strokeWidth="2.5" />
+        <circle
+          cx={r + 2} cy={r + 2} r={r}
+          fill="none"
+          stroke="#FCD535"
+          strokeWidth="2.5"
+          strokeDasharray={circ}
+          strokeDashoffset={circ * (1 - progress)}
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.9s linear' }}
+        />
+      </svg>
+      <span>{remainSec}s</span>
+    </div>
+  );
+}
 
 // ─── SVG Depth Chart Component ───
 function DepthChartSVG({ obData }) {
@@ -453,6 +592,46 @@ export default function TradePage() {
         
         prevBetsRef.current = newOrders;
         setBinaryBets(newOrders);
+
+        // Find the latest pending bet to restore the right panel's active countdown
+        const pendingBet = newOrders.find(o => o.Status === 'PENDING');
+        if (pendingBet) {
+          const offset = res.data.serverTime ? (new Date(res.data.serverTime).getTime() - Date.now()) : serverTimeOffset;
+          const cleanEndStr = pendingBet.EndTime ? (pendingBet.EndTime.endsWith('Z') ? pendingBet.EndTime : `${pendingBet.EndTime}Z`) : '';
+          let endMs = cleanEndStr ? new Date(cleanEndStr).getTime() : 0;
+          const nowMs = Date.now() + offset;
+          const diffMs = endMs - nowMs;
+          if (diffMs < -1800000) {
+            const shiftHours = Math.round(Math.abs(diffMs) / 3600000);
+            if (shiftHours > 0 && shiftHours < 24) {
+              endMs += shiftHours * 3600000;
+            }
+          }
+          const remainSec = Math.max(0, Math.round((endMs - nowMs) / 1000));
+          if (remainSec > 0) {
+            setCountdownTotal(pendingBet.Duration || 60);
+            setCountdownLeft(remainSec);
+            setCountdownBetType(pendingBet.BetType);
+            setCountdownActive(true);
+            
+            if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+            let remaining = remainSec;
+            countdownIntervalRef.current = setInterval(() => {
+              remaining -= 1;
+              setCountdownLeft(remaining);
+              if (remaining <= 0) {
+                clearInterval(countdownIntervalRef.current);
+                setCountdownActive(false);
+                fetchBinaryHistory();
+                fetchBalance();
+              }
+            }, 1000);
+          } else {
+            setCountdownActive(false);
+          }
+        } else {
+          setCountdownActive(false);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch binary history', err);
@@ -2087,7 +2266,7 @@ export default function TradePage() {
             <button
               onClick={() => handleSetAdminTrend('up')}
               style={{
-                height: '36px', border: 'none', borderRadius: '6px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s',
+                height: '36px', borderRadius: '6px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s',
                 background: adminTrend === 'up' ? 'linear-gradient(135deg,#00C087,#00a070)' : 'rgba(0,192,135,0.12)',
                 color: adminTrend === 'up' ? '#fff' : '#00C087',
                 border: `1.5px solid ${adminTrend === 'up' ? '#00C087' : 'rgba(0,192,135,0.35)'}`,
@@ -2100,7 +2279,7 @@ export default function TradePage() {
             <button
               onClick={() => handleSetAdminTrend('down')}
               style={{
-                height: '36px', border: 'none', borderRadius: '6px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s',
+                height: '36px', borderRadius: '6px', fontWeight: 700, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s',
                 background: adminTrend === 'down' ? 'linear-gradient(135deg,#F6465D,#d43a4e)' : 'rgba(246,70,93,0.12)',
                 color: adminTrend === 'down' ? '#fff' : '#F6465D',
                 border: `1.5px solid ${adminTrend === 'down' ? '#F6465D' : 'rgba(246,70,93,0.35)'}`,
@@ -2113,7 +2292,7 @@ export default function TradePage() {
             <button
               onClick={() => handleSetAdminTrend('neutral')}
               style={{
-                height: '36px', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s',
+                height: '36px', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s',
                 background: adminTrend === 'neutral' ? 'linear-gradient(135deg,#FCD535,#e6c02e)' : 'rgba(252,213,53,0.1)',
                 color: adminTrend === 'neutral' ? '#000' : '#FCD535',
                 border: `1.5px solid ${adminTrend === 'neutral' ? '#FCD535' : 'rgba(252,213,53,0.3)'}`,
@@ -2211,42 +2390,16 @@ export default function TradePage() {
                   </thead>
                   <tbody>
                     {binaryBets.map((bet) => {
-                      // Calculate remaining seconds for PENDING bets
-                      const cleanEndStr = bet.EndTime ? (bet.EndTime.endsWith('Z') ? bet.EndTime : `${bet.EndTime}Z`) : '';
-                      const endMs = cleanEndStr ? new Date(cleanEndStr).getTime() : 0;
-                      const nowMs = Date.now() + (serverTimeOffset || 0);
-                      const remainSec = Math.max(0, Math.round((endMs - nowMs) / 1000));
-                      const totalSec = bet.Duration || countdownTotal || 60;
-                      const progress = totalSec > 0 ? Math.max(0, Math.min(1, remainSec / totalSec)) : 0;
-                      const r = 12;
-                      const circ = 2 * Math.PI * r;
-                      const isPending = bet.Status === 'PENDING' && remainSec > 0;
-                      const betColor = bet.BetType === 'UP' ? '#00FFA3' : '#F6465D';
                       return (
                       <tr key={bet.Id} style={{ borderBottom: '1px solid #1e2329' }}>
                         <td style={{ padding: '10px 16px' }}>{formatDateTime(bet.StartTime)}</td>
                         <td style={{ padding: '10px 16px' }}>
-                          {isPending ? (
-                            <div style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              background: bet.BetType === 'UP' ? 'rgba(0,255,163,0.08)' : 'rgba(246,70,93,0.08)',
-                              border: `1.2px solid ${betColor}`,
-                              color: betColor,
-                              fontWeight: '900',
-                              fontSize: '12px',
-                              fontFamily: 'monospace',
-                              padding: '4px 10px',
-                              borderRadius: '6px',
-                              boxShadow: bet.BetType === 'UP' ? '0 0 8px rgba(0,255,163,0.15)' : '0 0 8px rgba(246,70,93,0.15)',
-                            }}>
-                              <span style={{ fontSize: '11px' }}>⏱</span>
-                              <span>{remainSec} giây</span>
-                            </div>
-                          ) : (
-                            formatDateTime(bet.EndTime)
-                          )}
+                          <SettlementTimeCell
+                            status={bet.Status}
+                            endTime={bet.EndTime}
+                            duration={bet.Duration || 60}
+                            serverTimeOffset={serverTimeOffset}
+                          />
                         </td>
                         <td style={{ padding: '10px 16px' }}>{bet.Symbol}</td>
                         <td style={{ padding: '10px 16px', color: bet.BetType === 'UP' ? '#00FFA3' : '#F6465D' }}>{bet.BetType}</td>
@@ -2255,10 +2408,19 @@ export default function TradePage() {
                         <td style={{ padding: '10px 16px' }}>{fmtP(bet.BetAmount)}</td>
                         <td style={{ padding: '10px 16px' }}>{bet.Payout > 0 ? `+${fmtP(bet.Payout)}` : '--'}</td>
                         <td style={{ padding: '10px 16px' }}>
-                          {bet.Status === 'PENDING' && <span style={{ color: '#FCD535' }}>Đang chờ</span>}
-                          {bet.Status === 'WIN' && <span style={{ color: '#00FFA3' }}>Thắng</span>}
-                          {bet.Status === 'LOSE' && <span style={{ color: '#F6465D' }}>Thua</span>}
-                          {bet.Status === 'TIE' && <span style={{ color: '#EAECEF' }}>Hòa</span>}
+                          {bet.Status === 'PENDING' ? (
+                            <PendingStatusCell
+                              endTime={bet.EndTime}
+                              duration={bet.Duration || countdownTotal || 60}
+                              serverTimeOffset={serverTimeOffset}
+                            />
+                          ) : (
+                            <>
+                              {bet.Status === 'WIN' && <span style={{ color: '#00FFA3' }}>Thắng</span>}
+                              {bet.Status === 'LOSE' && <span style={{ color: '#F6465D' }}>Thua</span>}
+                              {bet.Status === 'TIE' && <span style={{ color: '#EAECEF' }}>Hòa</span>}
+                            </>
+                          )}
                         </td>
                       </tr>
                       );

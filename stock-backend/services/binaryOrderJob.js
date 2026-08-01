@@ -13,7 +13,7 @@ export const startBinaryOrderJob = () => {
             // Get pending orders that have reached their EndTime
             const result = await pool.request().query(`
                 SELECT * FROM BinaryOrders 
-                WHERE Status = 'PENDING' AND EndTime <= GETDATE()
+                WHERE Status = 'PENDING' AND EndTime <= GETUTCDATE()
             `);
 
             const orders = result.recordset;

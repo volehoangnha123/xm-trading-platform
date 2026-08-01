@@ -35,8 +35,9 @@ async function migrate() {
                     BetType NVARCHAR(10) NOT NULL, -- 'UP' or 'DOWN'
                     StartPrice DECIMAL(18,6) NOT NULL,
                     EndPrice DECIMAL(18,6),
-                    StartTime DATETIME DEFAULT GETDATE(),
+                    StartTime DATETIME DEFAULT GETUTCDATE(),
                     EndTime DATETIME NOT NULL,
+                    Duration INT DEFAULT 60,
                     Status NVARCHAR(20) DEFAULT 'PENDING', -- 'PENDING', 'WIN', 'LOSE', 'TIE'
                     Payout DECIMAL(18,2) DEFAULT 0,
                     FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
@@ -84,6 +85,12 @@ async function migrate() {
             BEGIN
                 ALTER TABLE Users ADD BankAccountHolder NVARCHAR(200);
                 PRINT 'BankAccountHolder column added to Users.';
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[BinaryOrders]') AND name = 'Duration')
+            BEGIN
+                ALTER TABLE BinaryOrders ADD Duration INT DEFAULT 60;
+                PRINT 'Duration column added to BinaryOrders.';
             END
 
             IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Users]') AND name = 'BankBranch')
