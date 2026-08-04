@@ -46,6 +46,13 @@ export const placeOrder = async (req, res) => {
         }
         const startPrice = currentCoin.price;
 
+        // Sanity check: cap StartPrice to max value SQL Decimal(18,6) can hold
+        // Max value for DECIMAL(18,6) is 999999999999.999999
+        const MAX_SAFE_PRICE = 999999999999.999999;
+        if (!isFinite(startPrice) || startPrice <= 0 || startPrice > MAX_SAFE_PRICE) {
+            return res.status(400).json({ success: false, message: 'Giá hiện tại không hợp lệ, vui lòng thử lại sau.' });
+        }
+
         // Start transaction
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
